@@ -1,0 +1,20 @@
+services:
+  redis-primary:
+    image: redis:8.2-alpine
+    ports:
+      - "16379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 1s
+      retries: 10
+
+  redis-secondary:
+    image: redis:8.2-alpine
+    ports:
+      - "16380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 1s
+      retries: 10

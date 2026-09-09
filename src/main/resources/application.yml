@@ -1,0 +1,23 @@
+example:
+  redis:
+    multidb:
+      # With two endpoints, MAJORITY_AVAILABLE requires both during startup.
+      # ONE_AVAILABLE allows the application to start while either endpoint is unavailable.
+      initialization-policy: ${REDIS_MULTIDB_INITIALIZATION_POLICY:ONE_AVAILABLE}
+      command-timeout: ${REDIS_COMMAND_TIMEOUT:2s}
+      failback-enabled: true
+      failback-check-interval: 30s
+      grace-period: 60s
+      endpoints:
+        - name: primary
+          uri: ${REDIS_PRIMARY_URI:redis://localhost:6379}
+          weight: 1.0
+        - name: secondary
+          uri: ${REDIS_SECONDARY_URI:redis://localhost:6380}
+          weight: 0.5
+
+spring:
+  data:
+    redis:
+      repositories:
+        enabled: false
