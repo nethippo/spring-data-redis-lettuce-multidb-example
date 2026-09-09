@@ -1,5 +1,7 @@
 # Spring Data Redis + Lettuce MultiDbClient 예제
 
+설정, 기존 서비스 적용, 로컬/Cloud 테스트 방법은 [사용자 가이드](GUIDE.md)를 참고하십시오.
+
 고객의 `Example`과 `ApplicationConfig`는 변경하지 않고, 별도 설정으로 Lettuce `MultiDbClient`를
 Spring Data Redis의 `RedisTemplate<String, String>` 뒤에 연결한 예제입니다.
 
@@ -67,6 +69,39 @@ docker compose down
 검증합니다. 독립 Redis 두 대는 명령 라우팅과 연결만 검증하며 Active-Active 데이터 복제를
 재현하지 않습니다. 실제 failover/failback 검증에는 같은 논리 데이터베이스에 속한 Redis
 Enterprise Active-Active endpoint를 사용해야 합니다.
+
+## 실제 Cloud endpoint 검증
+
+Cloud 테스트는 기본 `mvn test`에서 실행하지 않는다. 별도 승인된 테스트 DB에만 사용한다.
+고객 클래스와 운영 어댑터를 수정하지 않고 테스트 클래스만 추가했다.
+
+```bash
+export AA_PRIMARY_HOST='your-first-db-endpoint'
+export AA_SECONDARY_HOST='your-second-db-endpoint'
+read -r -s -p 'Redis password: ' AA_REDIS_PASSWORD
+export AA_REDIS_PASSWORD
+# TLS-off DB에 대해 평문 테스트가 명시적으로 승인된 경우에만 false를 설정한다.
+export AA_TLS=false
+RUN_CLOUD_PREFLIGHT=true mvn -Dtest=CloudReplicationPreflightTests test
+# 앞선 양방향 복제 검사가 성공한 뒤 실행한다. 내부에도 복제 선행 검사가 있다.
+RUN_CLOUD_FAILOVER=true mvn -Dtest=CloudFailoverTests test
+unset AA_REDIS_PASSWORD
+```
+
+포트는 이 테스트에서 11164를 사용한다. `CloudReplicationPreflightTests`는 TLS를 기본으로
+사용하며 `AA_TLS=false`를 명시해야 평문 연결을 허용한다. `CloudFailoverTests`의 로컬 프록시는
+TLS-off DB 전용이다. 인증서 검증을 해제하는 옵션은 추가하지 않았다.
+
+첫 테스트는 방향별 3회 SETEX/GET으로 쓰기 시작·ACK와 최초 읽기 시작·완료 시각을 UTC CSV로 남긴다.
+최초 GET은 ACK 직후 실행하고 미수렴 시 250ms 후 재조회한다. 측정값에는 네트워크 왕복과 조회 간격이
+포함된다. 이어지는 테스트는 원본 `Example.addLink()`와 실제 자동 endpoint 전환을 검증한다.
+로컬 프록시는 loopback에만 바인딩하고 해당 테스트의 A 연결만 차단한다. 서버 설정·AA 복제망은 변경하지 않는다.
+단일 차단 시험은 응답 유실·중복 가능성 전체를 증명하지 않으며 그 실행의 타임아웃 키 결과만 기록한다.
+
+고유 키 접두사 `codex:multidb:test:<UUID>:`를 사용하고 최대 900초 TTL을 적용한다.
+SETEX는 쓰기와 TTL이 원자적이다. 고객 코드의 LPUSH는 그대로 두므로 TTL은 이후 별도 적용한다.
+고객 호출 실패·프로세스 강제 종료 시 TTL 적용 전의 키가 남을 수 있으므로 finally의 정확한 키 정리와
+보고서의 cleanup 결과를 확인해야 한다. 성공/실패 실행의 CSV는 `target/cloud-*.csv`에 각각 보존한다.
 
 ## 지원 범위와 제약
 

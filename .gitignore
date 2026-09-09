@@ -1,3 +1,14 @@
 target/
 .idea/
 *.iml
+.env
+.env.*
+*.pem
+*.key
+application-local.yml
+application-local.yaml
+aa-test-report-*.md
+aa-test-evidence-*/
+cloud-preflight-*.csv
+cloud-failover-*.csv
+*.zip
