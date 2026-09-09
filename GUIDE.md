@@ -49,6 +49,46 @@ native 연결을 닫지 말고, `RedisTemplate`과 Spring lifecycle에 관리를
 
 ## 3. 예제 실행
 
+### Example에서 제공하는 Operations 호출
+
+모든 Operations 필드는 `@Resource(name = "redisTemplate")`로 주입받습니다.
+추가 예제의 쓰기는 해당 Operations 필드를, 조회는 `redisTemplate.bound*Ops(key)`를 사용하여
+같은 템플릿을 사용하는 두 가지 호출 방식을 보여줍니다.
+
+| 타입 | 쓰기 메서드 | 조회 메서드 |
+|---|---|---|
+| List | 기존 `addLink(userId, url)` | 기존 테스트에서 `opsForList().range(...)` |
+| Value | `setValue(key, value)` | `getValue(key)` |
+| Set | `addSetMember(key, member)` | `isSetMember(key, member)` |
+| ZSet | `addZSetMember(key, member, score)` | `getZSetScore(key, member)` |
+| Hash | `putHashField(key, field, value)` | `getHashField(key, field)` |
+
+Spring에서 주입받은 `Example example` 인스턴스의 사용 예:
+
+```java
+example.setValue("demo:value:greeting", "hello");
+String greeting = example.getValue("demo:value:greeting");
+
+Long added = example.addSetMember("demo:set:topics", "redis");
+Boolean member = example.isSetMember("demo:set:topics", "redis");
+
+Boolean created = example.addZSetMember("demo:zset:scores", "alice", 100.0);
+Double score = example.getZSetScore("demo:zset:scores", "alice");
+
+example.putHashField("demo:hash:profile", "name", "Alice");
+String name = example.getHashField("demo:hash:profile", "name");
+```
+
+위 문자열은 설명용 키이며 환경별 자격 증명이나 실제 endpoint가 아닙니다.
+하나의 Redis 키에는 하나의 데이터 타입만 저장할 수 있으므로 타입별로 다른 키를 사용하십시오.
+`setValue`는 기존 값을 덮어씁니다. Set은 동일 member를 중복 저장하지 않습니다.
+ZSet은 동일 member의 score를 갱신하며 새 member가 아니면 추가 결과가 false입니다.
+Hash는 같은 field의 값을 갱신합니다. Value/Hash/ZSet 조회 대상이 없으면 null을 반환합니다.
+새 메서드는 각 호출마다 하나의 명령을 실행하며 자동 TTL을 설정하지 않습니다.
+필요한 TTL은 애플리케이션에서 추가하십시오. 기존 `addLink()`의 두 번 쓰기는 그대로 유지합니다.
+
+### 실행 명령
+
 ```bash
 mvn test
 ```
@@ -66,6 +106,9 @@ docker compose down
 
 이 테스트는 localhost의 16379와 16380 포트를 사용합니다. 원본 `Example.addLink()`는
 두 사용법을 보여주기 위해 `leftPush`를 두 번 실행하므로 리스트 항목 2개가 정상 결과입니다.
+같은 통합 테스트 클래스에서 Value 덮어쓰기, Set 중복, ZSet 점수 갱신과 정렬,
+Hash 필드 갱신도 검증합니다. 고유 테스트 키는 각 테스트 종료 후 삭제합니다.
+추가 타입의 검증 범위는 로컬 명령 실행이며 AA 차단·복귀 검증은 기존 List 경로를 사용합니다.
 
 DB 접속 설정 후 애플리케이션을 실행하려면:
 

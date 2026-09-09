@@ -2,8 +2,9 @@
 
 설정, 기존 서비스 적용, 로컬/Cloud 테스트 방법은 [사용자 가이드](GUIDE.md)를 참고하십시오.
 
-고객의 `Example`과 `ApplicationConfig`는 변경하지 않고, 별도 설정으로 Lettuce `MultiDbClient`를
+기존 `Example.addLink()`와 `ApplicationConfig`를 유지하면서, 별도 설정으로 Lettuce `MultiDbClient`를
 Spring Data Redis의 `RedisTemplate<String, String>` 뒤에 연결한 예제입니다.
+`Example`에는 Value, Set, ZSet, Hash의 쓰기·조회 메서드도 포함되어 있습니다.
 
 ## 적용 방식
 
@@ -28,7 +29,8 @@ private ListOperations<String, String> listOps;
 
 ## 주요 파일
 
-- `customer/Example.java`, `customer/ApplicationConfig.java`: 고객 코드 원본
+- `customer/Example.java`: 기존 List 호출 및 Value/Set/ZSet/Hash 추가 예제
+- `customer/ApplicationConfig.java`: 고객 설정 원본
 - `config/MultiDbRedisConfiguration.java`: endpoint와 `redisTemplate` 조립
 - `config/MultiDbRedisConnectionFactory.java`: Lettuce MultiDB/Spring Data 어댑터
 - `config/MultiDbRedisProperties.java`: 외부 설정 바인딩
@@ -66,14 +68,16 @@ docker compose down
 ```
 
 이 통합 테스트는 고객의 `Example.addLink()`를 그대로 호출하고, 리스트에 두 항목이 저장되었는지
-검증합니다. 독립 Redis 두 대는 명령 라우팅과 연결만 검증하며 Active-Active 데이터 복제를
+검증합니다. Value의 덮어쓰기, Set의 중복 처리, ZSet의 점수 갱신·정렬, Hash의 필드 갱신도 검증합니다.
+독립 Redis 두 대는 명령 라우팅과 연결만 검증하며 Active-Active 데이터 복제를
 재현하지 않습니다. 실제 failover/failback 검증에는 같은 논리 데이터베이스에 속한 Redis
 Enterprise Active-Active endpoint를 사용해야 합니다.
 
 ## 실제 Cloud endpoint 검증
 
 Cloud 테스트는 기본 `mvn test`에서 실행하지 않는다. 별도 승인된 테스트 DB에만 사용한다.
-고객 클래스와 운영 어댑터를 수정하지 않고 테스트 클래스만 추가했다.
+Cloud 차단 시나리오는 기존 `addLink()` 경로를 사용하며 운영 어댑터를 변경하지 않는다.
+추가된 Value/Set/ZSet/Hash 호출은 로컬 통합 테스트에 포함되며 Cloud 차단 시나리오의 검증 대상은 아니다.
 
 ```bash
 export AA_PRIMARY_HOST='your-first-db-endpoint'
