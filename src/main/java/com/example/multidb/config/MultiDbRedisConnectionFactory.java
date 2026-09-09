@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 import io.lettuce.core.api.StatefulConnection;
 import io.lettuce.core.codec.ByteArrayCodec;
@@ -28,8 +29,7 @@ import org.springframework.data.redis.connection.lettuce.LettuceExceptionConvert
 public final class MultiDbRedisConnectionFactory
         implements RedisConnectionFactory, SmartLifecycle, DisposableBean {
 
-    private final Collection<DatabaseConfig> databases;
-    private final MultiDbOptions options;
+    private final Supplier<MultiDbClient> clientSupplier;
     private final Duration commandTimeout;
     private final AtomicBoolean running = new AtomicBoolean();
     private final LettuceExceptionConverter exceptionConverter = new LettuceExceptionConverter();
@@ -41,8 +41,14 @@ public final class MultiDbRedisConnectionFactory
 
     public MultiDbRedisConnectionFactory(Collection<DatabaseConfig> databases,
             MultiDbOptions options, Duration commandTimeout) {
-        this.databases = List.copyOf(databases);
-        this.options = options;
+        List<DatabaseConfig> databaseSnapshot = List.copyOf(databases);
+        this.clientSupplier = () -> MultiDbClient.create(databaseSnapshot, options);
+        this.commandTimeout = commandTimeout;
+    }
+
+    // Package-private seam for lifecycle tests without opening network connections.
+    MultiDbRedisConnectionFactory(Supplier<MultiDbClient> clientSupplier, Duration commandTimeout) {
+        this.clientSupplier = clientSupplier;
         this.commandTimeout = commandTimeout;
     }
 
@@ -52,11 +58,15 @@ public final class MultiDbRedisConnectionFactory
             return;
         }
 
-        MultiDbClient newClient = MultiDbClient.create(databases, options);
-        StatefulRedisMultiDbConnection<byte[], byte[]> newConnection =
-                newClient.connect(ByteArrayCodec.INSTANCE);
-
-        newConnection.setTimeout(commandTimeout);
+        MultiDbClient newClient = clientSupplier.get();
+        StatefulRedisMultiDbConnection<byte[], byte[]> newConnection = null;
+        try {
+            newConnection = newClient.connect(ByteArrayCodec.INSTANCE);
+            newConnection.setTimeout(commandTimeout);
+        } catch (RuntimeException | Error failure) {
+            releaseResources(newConnection, newClient, failure);
+            throw failure;
+        }
         this.client = newClient;
         this.sharedConnection = newConnection;
         running.set(true);
@@ -73,12 +83,42 @@ public final class MultiDbRedisConnectionFactory
         this.sharedConnection = null;
         this.client = null;
 
-        if (connection != null) {
-            connection.close();
+        Throwable failure = releaseResources(connection, multiDbClient, null);
+        if (failure instanceof RuntimeException runtimeException) {
+            throw runtimeException;
         }
-        if (multiDbClient != null) {
-            multiDbClient.shutdown();
+        if (failure instanceof Error error) {
+            throw error;
         }
+    }
+
+    private static Throwable releaseResources(StatefulRedisMultiDbConnection<byte[], byte[]> connection,
+            MultiDbClient client, Throwable failure) {
+        try {
+            if (connection != null) {
+                connection.close();
+            }
+        } catch (RuntimeException | Error closeFailure) {
+            failure = retainFailure(failure, closeFailure);
+        }
+        try {
+            if (client != null) {
+                client.shutdown();
+            }
+        } catch (RuntimeException | Error shutdownFailure) {
+            failure = retainFailure(failure, shutdownFailure);
+        }
+        return failure;
+    }
+
+    private static Throwable retainFailure(Throwable first, Throwable next) {
+        if (first == null) {
+            return next;
+        }
+        if (first != next) {
+            first.addSuppressed(next);
+        }
+        return first;
     }
 
     @Override
